@@ -75,6 +75,8 @@ services:
       RAW_BUCKET: raw-las
       POINTCLOUDS_BUCKET: pointclouds
       MAX_UPLOAD_GB: ${MAX_UPLOAD_GB:-200}
+      SUPABASE_URL: ${SUPABASE_URL}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
     expose:
       - "4000"
 

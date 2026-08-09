@@ -22,10 +22,29 @@
   .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #eee; white-space: nowrap; }
   .badge.ready { background: #dcfce7; color: #166534; }
   .badge.failed { background: #fee2e2; color: #991b1b; }
+  #authSection { max-width: 320px; margin: 80px auto; }
+  #authSection input { display: block; width: 100%; box-sizing: border-box; padding: 10px; margin-top: 8px; border: 1px solid #ccc; border-radius: 6px; }
+  #authSection button { margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; }
+  #authStatus { margin-top: 10px; font-size: 13px; color: #b91c1c; min-height: 16px; }
+  #topbar { display: flex; justify-content: space-between; align-items: center; }
+  #logoutBtn { border: none; background: none; color: #2563eb; cursor: pointer; font-size: 13px; }
 </style>
 </head>
 <body>
-  <h1>Subir nube de puntos (LAS / LAZ)</h1>
+
+<div id="authSection">
+  <h1>Iniciar sesion</h1>
+  <input id="email" type="email" placeholder="Correo" autocomplete="username">
+  <input id="password" type="password" placeholder="Contrasena" autocomplete="current-password">
+  <button id="loginBtn">Entrar</button>
+  <div id="authStatus"></div>
+</div>
+
+<div id="appSection" style="display:none">
+  <div id="topbar">
+    <h1>Subir nube de puntos (LAS / LAZ)</h1>
+    <button id="logoutBtn">Cerrar sesion</button>
+  </div>
   <div id="dropzone">
     Arrastra tu archivo aqui o haz clic para seleccionarlo
     <input id="fileInput" type="file" accept=".las,.laz" style="display:none">
@@ -35,13 +54,63 @@
 
   <h2>Nubes de puntos</h2>
   <ul id="jobs"></ul>
+</div>
 
+<script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
+const supabaseClient = window.supabase.createClient(
+  window.APP_CONFIG.SUPABASE_URL,
+  window.APP_CONFIG.SUPABASE_ANON_KEY
+);
+
+const authSection = document.getElementById('authSection');
+const appSection = document.getElementById('appSection');
+const emailInput = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const loginBtn = document.getElementById('loginBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+const authStatusEl = document.getElementById('authStatus');
+
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const progress = document.getElementById('progress');
 const statusEl = document.getElementById('status');
 const jobsEl = document.getElementById('jobs');
+
+async function authHeaders() {
+  const { data } = await supabaseClient.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+loginBtn.addEventListener('click', async () => {
+  authStatusEl.textContent = '';
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email: emailInput.value,
+    password: passwordInput.value,
+  });
+  if (error) authStatusEl.textContent = error.message;
+});
+
+passwordInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') loginBtn.click();
+});
+
+logoutBtn.addEventListener('click', async () => {
+  await supabaseClient.auth.signOut();
+});
+
+supabaseClient.auth.onAuthStateChange((_event, session) => {
+  if (session) {
+    authSection.style.display = 'none';
+    appSection.style.display = 'block';
+    renderJobs();
+  } else {
+    authSection.style.display = 'block';
+    appSection.style.display = 'none';
+  }
+});
 
 dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
@@ -66,7 +135,7 @@ async function uploadFile(file) {
   try {
     const presignRes = await fetch('/api/uploads/presign', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ filename: file.name }),
     });
     if (!presignRes.ok) throw new Error('presign fallo');
@@ -94,7 +163,10 @@ async function uploadFile(file) {
     // recien ahi cree y encole el trabajo de conversion.
     statusEl.textContent = 'Archivo subido. Confirmando...';
     try {
-      const completeRes = await fetch(`/api/uploads/${jobId}/complete`, { method: 'POST' });
+      const completeRes = await fetch(`/api/uploads/${jobId}/complete`, {
+        method: 'POST',
+        headers: await authHeaders(),
+      });
       if (!completeRes.ok) throw new Error('complete fallo');
     } catch (err) {
       statusEl.textContent = 'Subida completa, pero fallo al encolar la conversion.';
@@ -109,7 +181,7 @@ async function uploadFile(file) {
 }
 
 async function pollJob(jobId) {
-  const res = await fetch(`/api/jobs/${jobId}`);
+  const res = await fetch(`/api/jobs/${jobId}`, { headers: await authHeaders() });
   const job = await res.json();
   renderJobs();
 
@@ -126,7 +198,7 @@ async function pollJob(jobId) {
 }
 
 async function renderJobs() {
-  const res = await fetch('/api/jobs');
+  const res = await fetch('/api/jobs', { headers: await authHeaders() });
   const jobs = await res.json();
   jobsEl.innerHTML = '';
   for (const job of jobs) {
@@ -140,8 +212,6 @@ async function renderJobs() {
     jobsEl.appendChild(li);
   }
 }
-
-renderJobs();
 //setInterval(renderJobs, 8000);
 </script>
 </body>

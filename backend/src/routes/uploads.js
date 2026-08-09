@@ -3,8 +3,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { minioClient, RAW_BUCKET } from '../minio.js';
 import { createJob, getJob, updateJobStatus } from '../db.js';
 import { conversionQueue } from '../queue.js';
+import { requireAuth } from '../auth.js';
 
 const router = Router();
+
+router.use(requireAuth);
 
 // Suficiente margen para archivos grandes en redes lentas.
 const PRESIGN_EXPIRY_SECONDS = 60 * 60;
@@ -35,7 +38,7 @@ router.post('/presign', async (req, res) => {
     const { pathname, search } = new URL(presignedUrl);
     const uploadUrl = `${pathname}${search}`;
 
-    await createJob({ id: jobId, originalFilename: filename, rawKey, outputPrefix });
+    await createJob({ id: jobId, originalFilename: filename, rawKey, outputPrefix, userId: req.userId });
 
     res.json({ jobId, uploadUrl });
   } catch (err) {
@@ -48,7 +51,7 @@ router.post('/presign', async (req, res) => {
 // la API verifica que el objeto exista y recien ahi encola la conversion.
 router.post('/:jobId/complete', async (req, res) => {
   const { jobId } = req.params;
-  const job = await getJob(jobId);
+  const job = await getJob(jobId, req.userId);
   if (!job) {
     res.status(404).json({ error: 'Job no encontrado' });
     return;
