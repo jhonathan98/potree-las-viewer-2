@@ -22,10 +22,13 @@ export async function initDb() {
   `);
 }
 
+// El status arranca en el default de la tabla ('uploading'): el job pasa a
+// 'queued' recien cuando /api/uploads/:jobId/complete confirma que el
+// archivo ya llego a MinIO (ver routes/uploads.js).
 export async function createJob({ id, originalFilename, rawKey, outputPrefix }) {
   await pool.query(
-    `INSERT INTO jobs (id, original_filename, raw_key, output_prefix, status)
-     VALUES ($1, $2, $3, $4, 'queued')`,
+    `INSERT INTO jobs (id, original_filename, raw_key, output_prefix)
+     VALUES ($1, $2, $3, $4)`,
     [id, originalFilename, rawKey, outputPrefix]
   );
 }

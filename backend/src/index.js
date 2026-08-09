@@ -6,6 +6,7 @@ import jobsRouter from './routes/jobs.js';
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/jobs', jobsRouter);

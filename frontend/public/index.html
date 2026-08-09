@@ -55,32 +55,57 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files.length) uploadFile(fileInput.files[0]);
 });
 
-function uploadFile(file) {
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/uploads');
-
+async function uploadFile(file) {
   progress.style.display = 'block';
   progress.value = 0;
+  statusEl.textContent = `Preparando subida de ${file.name}...`;
+
+  // Paso 1: pedir a la API una URL prefirmada (el archivo va directo a
+  // MinIO despues, sin pasar por la API).
+  let jobId, uploadUrl;
+  try {
+    const presignRes = await fetch('/api/uploads/presign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name }),
+    });
+    if (!presignRes.ok) throw new Error('presign fallo');
+    ({ jobId, uploadUrl } = await presignRes.json());
+  } catch (err) {
+    statusEl.textContent = 'Error al preparar la subida.';
+    return;
+  }
+
+  // Paso 2: subir el archivo directo con esa URL.
+  const xhr = new XMLHttpRequest();
+  xhr.open('PUT', uploadUrl);
   statusEl.textContent = `Subiendo ${file.name}...`;
 
   xhr.upload.addEventListener('progress', (e) => {
     if (e.lengthComputable) progress.value = (e.loaded / e.total) * 100;
   });
 
-  xhr.onload = () => {
-    if (xhr.status === 202) {
-      const { jobId } = JSON.parse(xhr.responseText);
-      statusEl.textContent = 'Archivo subido. Procesando en el servidor...';
-      pollJob(jobId);
-    } else {
+  xhr.onload = async () => {
+    if (xhr.status < 200 || xhr.status >= 300) {
       statusEl.textContent = 'Error al subir el archivo.';
+      return;
     }
+    // Paso 3: confirmar a la API que el archivo ya esta en MinIO, para que
+    // recien ahi cree y encole el trabajo de conversion.
+    statusEl.textContent = 'Archivo subido. Confirmando...';
+    try {
+      const completeRes = await fetch(`/api/uploads/${jobId}/complete`, { method: 'POST' });
+      if (!completeRes.ok) throw new Error('complete fallo');
+    } catch (err) {
+      statusEl.textContent = 'Subida completa, pero fallo al encolar la conversion.';
+      return;
+    }
+    statusEl.textContent = 'Archivo subido. Procesando en el servidor...';
+    pollJob(jobId);
   };
   xhr.onerror = () => { statusEl.textContent = 'Error de red durante la subida.'; };
 
-  const form = new FormData();
-  form.append('file', file);
-  xhr.send(form);
+  xhr.send(file);
 }
 
 async function pollJob(jobId) {
