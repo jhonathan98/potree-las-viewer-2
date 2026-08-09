@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { initDb } from './db.js';
+import { cleanupStaleUploads } from './cleanup.js';
 import uploadsRouter from './routes/uploads.js';
 import jobsRouter from './routes/jobs.js';
 
@@ -15,9 +16,15 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 const port = process.env.PORT || 4000;
 
+const CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+
 async function start() {
   await initDb();
   app.listen(port, () => console.log(`API escuchando en puerto ${port}`));
+
+  setInterval(() => {
+    cleanupStaleUploads().catch((err) => console.error('Error en limpieza de uploads', err));
+  }, CLEANUP_INTERVAL_MS);
 }
 
 start().catch((err) => {
