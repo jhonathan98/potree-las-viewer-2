@@ -24,7 +24,10 @@ const SCRATCH_DIR = process.env.SCRATCH_DIR || '/scratch';
 const POTREE_CONVERTER_BIN =
   process.env.POTREE_CONVERTER_BIN || '/usr/local/bin/PotreeConverter';
 
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
 async function updateJobStatus(id, status, error = null) {
   await pool.query(

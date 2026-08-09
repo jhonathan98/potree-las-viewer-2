@@ -1,28 +1,12 @@
-# Stack completo: Postgres (metadata) + Redis (cola) + MinIO (almacenamiento S3)
-# + api (backend) + worker (conversion con PotreeConverter) + frontend (nginx + Potree)
+# Stack: Redis (cola) + MinIO (almacenamiento S3) + api (backend) + worker
+# (conversion con PotreeConverter) + frontend (nginx + Potree).
+# La metadata de jobs vive en Supabase (Postgres administrado), via DATABASE_URL en .env.
 #
 # Arrancar:            docker compose up -d --build
 # Escalar workers:      docker compose up -d --scale worker=3
 # Logs de un servicio:  docker compose logs -f worker
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-potree}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-potree}
-      POSTGRES_DB: ${POSTGRES_DB:-potree}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-potree}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -75,15 +59,13 @@ services:
     build: ./backend
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
     environment:
       PORT: 4000
-      DATABASE_URL: postgres://${POSTGRES_USER:-potree}:${POSTGRES_PASSWORD:-potree}@postgres:5432/${POSTGRES_DB:-potree}
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -100,14 +82,12 @@ services:
     build: ./worker
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-potree}:${POSTGRES_PASSWORD:-potree}@postgres:5432/${POSTGRES_DB:-potree}
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -132,7 +112,6 @@ services:
       - "8080:80"
 
 volumes:
-  postgres_data:
   redis_data:
   minio_data:
   worker_tmp:
