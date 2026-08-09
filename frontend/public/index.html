@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visor de nubes de puntos LAS</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; color: #222; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 18px; margin-top: 40px; }
+  #dropzone {
+    border: 2px dashed #999; border-radius: 8px; padding: 40px; text-align: center;
+    color: #666; cursor: pointer; transition: border-color .2s, background .2s;
+  }
+  #dropzone.dragover { border-color: #2563eb; background: #eff6ff; }
+  progress { width: 100%; height: 18px; margin-top: 16px; }
+  #status { margin-top: 12px; font-size: 14px; color: #444; }
+  ul#jobs { list-style: none; padding: 0; }
+  ul#jobs li { padding: 10px 0; border-bottom: 1px solid #eee; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  ul#jobs li span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  a.btn { color: #2563eb; text-decoration: none; font-weight: 600; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #eee; white-space: nowrap; }
+  .badge.ready { background: #dcfce7; color: #166534; }
+  .badge.failed { background: #fee2e2; color: #991b1b; }
+</style>
+</head>
+<body>
+  <h1>Subir nube de puntos (LAS / LAZ)</h1>
+  <div id="dropzone">
+    Arrastra tu archivo aqui o haz clic para seleccionarlo
+    <input id="fileInput" type="file" accept=".las,.laz" style="display:none">
+  </div>
+  <progress id="progress" value="0" max="100" style="display:none"></progress>
+  <div id="status"></div>
+
+  <h2>Nubes de puntos</h2>
+  <ul id="jobs"></ul>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const progress = document.getElementById('progress');
+const statusEl = document.getElementById('status');
+const jobsEl = document.getElementById('jobs');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) uploadFile(fileInput.files[0]);
+});
+
+function uploadFile(file) {
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/uploads');
+
+  progress.style.display = 'block';
+  progress.value = 0;
+  statusEl.textContent = `Subiendo ${file.name}...`;
+
+  xhr.upload.addEventListener('progress', (e) => {
+    if (e.lengthComputable) progress.value = (e.loaded / e.total) * 100;
+  });
+
+  xhr.onload = () => {
+    if (xhr.status === 202) {
+      const { jobId } = JSON.parse(xhr.responseText);
+      statusEl.textContent = 'Archivo subido. Procesando en el servidor...';
+      pollJob(jobId);
+    } else {
+      statusEl.textContent = 'Error al subir el archivo.';
+    }
+  };
+  xhr.onerror = () => { statusEl.textContent = 'Error de red durante la subida.'; };
+
+  const form = new FormData();
+  form.append('file', file);
+  xhr.send(form);
+}
+
+async function pollJob(jobId) {
+  const res = await fetch(`/api/jobs/${jobId}`);
+  const job = await res.json();
+  renderJobs();
+
+  if (job.status === 'ready') {
+    statusEl.textContent = 'Conversion completa.';
+    return;
+  }
+  if (job.status === 'failed') {
+    statusEl.textContent = `Fallo la conversion: ${job.error || 'error desconocido'}`;
+    return;
+  }
+  statusEl.textContent = `Estado: ${job.status}...`;
+  //setTimeout(() => pollJob(jobId), 4000);
+}
+
+async function renderJobs() {
+  const res = await fetch('/api/jobs');
+  const jobs = await res.json();
+  jobsEl.innerHTML = '';
+  for (const job of jobs) {
+    const li = document.createElement('li');
+    const badgeClass = job.status === 'ready' ? 'ready' : (job.status === 'failed' ? 'failed' : '');
+    li.innerHTML = `
+      <span>${job.original_filename}</span>
+      <span class="badge ${badgeClass}">${job.status}</span>
+      ${job.status === 'ready' ? `<a class="btn" href="/viewer.html?job=${job.id}">Ver</a>` : ''}
+    `;
+    jobsEl.appendChild(li);
+  }
+}
+
+renderJobs();
+//setInterval(renderJobs, 8000);
+</script>
+</body>
+</html>

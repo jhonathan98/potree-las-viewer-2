@@ -1,0 +1,138 @@
+# Stack completo: Postgres (metadata) + Redis (cola) + MinIO (almacenamiento S3)
+# + api (backend) + worker (conversion con PotreeConverter) + frontend (nginx + Potree)
+#
+# Arrancar:            docker compose up -d --build
+# Escalar workers:      docker compose up -d --scale worker=3
+# Logs de un servicio:  docker compose logs -f worker
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-potree}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-potree}
+      POSTGRES_DB: ${POSTGRES_DB:-potree}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-potree}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-potreeadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-potreesecret}
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # consola web de administracion
+    volumes:
+      - minio_data:/data
+    # Nota: las imagenes recientes de minio no traen curl/wget, por eso el
+    # "readiness" se resuelve con reintentos en minio-init en vez de un healthcheck aqui.
+
+  # Tarea de una sola vez: crea los buckets necesarios y espera a que minio este listo
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      # Estas SI las resuelve docker compose (un solo $) al leer tu .env,
+      # y quedan disponibles como variables de entorno dentro del contenedor.
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-potreeadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-potreesecret}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do
+        echo 'esperando a minio...';
+        sleep 2;
+      done;
+      mc mb -p local/raw-las || true;
+      mc mb -p local/pointclouds || true;
+      mc anonymous set download local/pointclouds;
+      echo 'buckets listos';
+      "
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-potree}:${POSTGRES_PASSWORD:-potree}@postgres:5432/${POSTGRES_DB:-potree}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-potreeadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-potreesecret}
+      RAW_BUCKET: raw-las
+      POINTCLOUDS_BUCKET: pointclouds
+      MAX_UPLOAD_GB: ${MAX_UPLOAD_GB:-200}
+    expose:
+      - "4000"
+
+  worker:
+    build: ./worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-potree}:${POSTGRES_PASSWORD:-potree}@postgres:5432/${POSTGRES_DB:-potree}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-potreeadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-potreesecret}
+      RAW_BUCKET: raw-las
+      POINTCLOUDS_BUCKET: pointclouds
+      SCRATCH_DIR: /scratch
+    volumes:
+      - worker_tmp:/scratch
+    # Cada contenedor procesa 1 conversion a la vez (PotreeConverter ya usa varios hilos).
+    # Para mas capacidad, escala el numero de contenedores, no la concurrencia interna:
+    #   docker compose up -d --scale worker=3
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  worker_tmp:
