@@ -63,6 +63,8 @@ const supabaseClient = window.supabase.createClient(
   window.APP_CONFIG.SUPABASE_URL,
   window.APP_CONFIG.SUPABASE_ANON_KEY
 );
+// Vacio cuando el frontend y la API comparten origen (desarrollo local).
+const API_BASE_URL = window.APP_CONFIG.API_BASE_URL || '';
 
 const authSection = document.getElementById('authSection');
 const appSection = document.getElementById('appSection');
@@ -133,7 +135,7 @@ async function uploadFile(file) {
   // MinIO despues, sin pasar por la API).
   let jobId, uploadUrl;
   try {
-    const presignRes = await fetch('/api/uploads/presign', {
+    const presignRes = await fetch(`${API_BASE_URL}/api/uploads/presign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ filename: file.name }),
@@ -163,7 +165,7 @@ async function uploadFile(file) {
     // recien ahi cree y encole el trabajo de conversion.
     statusEl.textContent = 'Archivo subido. Confirmando...';
     try {
-      const completeRes = await fetch(`/api/uploads/${jobId}/complete`, {
+      const completeRes = await fetch(`${API_BASE_URL}/api/uploads/${jobId}/complete`, {
         method: 'POST',
         headers: await authHeaders(),
       });
@@ -181,7 +183,7 @@ async function uploadFile(file) {
 }
 
 async function pollJob(jobId) {
-  const res = await fetch(`/api/jobs/${jobId}`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`, { headers: await authHeaders() });
   const job = await res.json();
   renderJobs();
 
@@ -198,7 +200,7 @@ async function pollJob(jobId) {
 }
 
 async function renderJobs() {
-  const res = await fetch('/api/jobs', { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE_URL}/api/jobs`, { headers: await authHeaders() });
   const jobs = await res.json();
   jobsEl.innerHTML = '';
   for (const job of jobs) {

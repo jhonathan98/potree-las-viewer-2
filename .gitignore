@@ -4,3 +4,4 @@ node_modules/
 frontend/vendor/
 worker/vendor/
 frontend/public/config.js
+frontend/dist/

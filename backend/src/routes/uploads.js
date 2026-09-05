@@ -35,8 +35,11 @@ router.post('/presign', async (req, res) => {
     // La URL firmada apunta al host interno "minio:9000". nginx expone el
     // mismo path bajo /raw-las/ reenviando con el mismo Host, asi que el
     // navegador solo necesita path+query para que la firma siga siendo valida.
+    // BACKEND_PUBLIC_URL antepone el origen publico de la API cuando el
+    // frontend vive en otro dominio (ej. Cloudflare Pages); vacio en local,
+    // donde frontend y API comparten origen via el nginx del docker-compose.
     const { pathname, search } = new URL(presignedUrl);
-    const uploadUrl = `${pathname}${search}`;
+    const uploadUrl = `${process.env.BACKEND_PUBLIC_URL || ''}${pathname}${search}`;
 
     await createJob({ id: jobId, originalFilename: filename, rawKey, outputPrefix, userId: req.userId });
 

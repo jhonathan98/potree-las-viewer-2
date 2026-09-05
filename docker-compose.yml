@@ -77,6 +77,7 @@ services:
       MAX_UPLOAD_GB: ${MAX_UPLOAD_GB:-200}
       SUPABASE_URL: ${SUPABASE_URL}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-}
     expose:
       - "4000"
 
@@ -112,6 +113,23 @@ services:
       - api
     ports:
       - "8080:80"
+
+  # Expone el nginx de arriba (que ya proxea /api, /pointclouds y /raw-las)
+  # a internet como nas.tudominio.com, sin abrir puertos en el router.
+  # Requiere CLOUDFLARE_TUNNEL_TOKEN en .env (Zero Trust > Networks > Tunnels
+  # > tu tunnel > instalar con Docker) y, en el dashboard del tunnel, mapear
+  # el Public Hostname al servicio "http://frontend:80".
+  # Arrancar solo este servicio: docker compose --profile cloudflare up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    profiles:
+      - cloudflare
 
 volumes:
   redis_data:

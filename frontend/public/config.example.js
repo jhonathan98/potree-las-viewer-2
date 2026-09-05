@@ -8,4 +8,7 @@
 window.APP_CONFIG = {
   SUPABASE_URL: 'https://xxxxxxxx.supabase.co',
   SUPABASE_ANON_KEY: 'pegar-aqui-la-anon-key',
+  // URL publica de la API (Cloudflare Tunnel), ej. 'https://nas.tudominio.com'.
+  // Dejar vacio si el frontend y la API comparten origen (desarrollo local).
+  API_BASE_URL: '',
 };
