@@ -3,3 +3,5 @@ node_modules/
 *.log
 frontend/vendor/
 worker/vendor/
+frontend/public/config.js
+frontend/dist/

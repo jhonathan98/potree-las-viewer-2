@@ -10,7 +10,14 @@
 <link rel="stylesheet" href="/potree-lib/libs/jstree/themes/mixed/style.css">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; }
-  #potree_render_area { background: #001; }
+  #potree_render_area { background: #1a2535; }
+  #diag {
+    position: absolute; top: 10px; left: 10px; z-index: 1000;
+    background: rgba(0,0,0,.75); color: #eee; font: 12px/1.5 monospace;
+    padding: 10px 14px; border-radius: 6px; max-width: 380px;
+    pointer-events: none;
+  }
+  #diag.hidden { display: none; }
 </style>
 </head>
 <body>
@@ -18,14 +25,8 @@
     <div id="potree_render_area"></div>
     <div id="potree_sidebar_container"></div>
   </div>
+  <div id="diag">Iniciando visor...</div>
 
-<!--
-  NOTA: estos nombres/rutas de libs siguen la estructura tipica de los
-  examples/*.html del repo potree/potree en la version 1.8.2. Si al abrir esta
-  pagina la consola muestra 404 en algun script, compara con el archivo
-  examples/viewer_template.html del repo que se clona en el build del
-  Dockerfile y ajusta las rutas aqui abajo.
--->
 <script src="/potree-lib/libs/jquery/jquery-3.1.1.min.js"></script>
 <script src="/potree-lib/libs/spectrum/spectrum.js"></script>
 <script src="/potree-lib/libs/jquery-ui/jquery-ui.min.js"></script>
@@ -38,35 +39,112 @@
 <script src="/potree-lib/libs/jstree/jstree.js"></script>
 <script src="/potree-lib/build/potree/potree.js"></script>
 <script src="/potree-lib/libs/plasio/js/laslaz.js"></script>
+<script src="/config.js"></script>
 
 <script type="module">
+  // Vacio cuando el visor y la API comparten origen (desarrollo local).
+  const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || '';
+  const diag = document.getElementById('diag');
+  const log = (msg) => {
+    console.log('[visor]', msg);
+    diag.textContent = msg;
+  };
+
   const params = new URLSearchParams(window.location.search);
   const jobId = params.get('job');
 
   if (!jobId) {
-    document.body.innerHTML = '<p style="color:white;padding:20px">Falta el parametro ?job=ID en la URL</p>';
+    log('Falta el parametro ?job=ID en la URL');
   } else {
-    window.viewer = new Potree.Viewer(document.getElementById('potree_render_area'));
+    const viewer = new Potree.Viewer(document.getElementById('potree_render_area'));
+    window.viewer = viewer;
     viewer.setEDLEnabled(true);
     viewer.setFOV(60);
     viewer.setPointBudget(2_000_000);
-    viewer.setDescription('Nube de puntos generada');
-    viewer.loadGUI(() => {
-      viewer.setLanguage('es');
-    });
+    viewer.loadGUI(() => viewer.setLanguage('es'));
 
-    // "pointclouds" es el bucket de MinIO, proxied por nginx en /pointclouds/
-    const url = `/pointclouds/${jobId}/metadata.json`;
+    const url = `${API_BASE_URL}/pointclouds/${jobId}/metadata.json`;
+    log('Cargando ' + url);
 
-    Potree.loadPointCloud(url, 'nube', (e) => {
-      const pointcloud = e.pointcloud;
-      const material = pointcloud.material;
-      material.activeAttributeName = 'rgba';
-      material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+    // Verificamos primero que el metadata exista, para distinguir
+    // "no cargo" de "cargo pero se ve negro".
+    fetch(url)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status} al pedir metadata.json`);
+        return r.json();
+      })
+      .then((meta) => {
+        console.log('[visor] metadata.json:', meta);
+        log('metadata.json OK. Cargando puntos...');
+        cargarNube(url);
+      })
+      .catch((err) => {
+        log('ERROR: ' + err.message);
+        console.error('[visor]', err);
+      });
 
-      viewer.scene.addPointCloud(pointcloud);
-      viewer.fitToScreen();
-    });
+    function nombresDeAtributos(pointcloud) {
+      // La ruta exacta cambia entre versiones de Potree; probamos varias.
+      const posibles = [
+        pointcloud?.pcoGeometry?.pointAttributes?.attributes,
+        pointcloud?.pcoGeometry?.pointAttributes,
+        pointcloud?.material?.availableAttributes,
+      ];
+      for (const lista of posibles) {
+        if (Array.isArray(lista) && lista.length) {
+          return lista.map((a) => (typeof a === 'string' ? a : a?.name)).filter(Boolean);
+        }
+      }
+      return [];
+    }
+
+    function cargarNube(url) {
+      Potree.loadPointCloud(url, 'nube', (e) => {
+        if (!e || !e.pointcloud) {
+          log('ERROR: Potree no devolvio una nube de puntos');
+          return;
+        }
+
+        const pointcloud = e.pointcloud;
+        const material = pointcloud.material;
+
+        viewer.scene.addPointCloud(pointcloud);
+
+        const atributos = nombresDeAtributos(pointcloud);
+        console.log('[visor] atributos disponibles:', atributos);
+
+        // Elegimos el atributo de color segun lo que el archivo realmente tenga.
+        // Un LAS sin RGB pintado como "rgba" se ve completamente negro.
+        const tieneRGB = atributos.some((n) => /^rgba?$/i.test(n));
+        const tieneIntensidad = atributos.some((n) => /intensity/i.test(n));
+
+        let elegido;
+        if (tieneRGB) elegido = 'rgba';
+        else if (tieneIntensidad) elegido = 'intensity';
+        else elegido = 'elevation';
+
+        try {
+          material.activeAttributeName = elegido;
+        } catch (err) {
+          console.warn('[visor] no se pudo fijar el atributo, usando elevation', err);
+          material.activeAttributeName = 'elevation';
+          elegido = 'elevation';
+        }
+
+        material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+        material.size = 1;
+
+        viewer.fitToScreen();
+
+        const n = pointcloud.pcoGeometry?.numPoints ?? 'desconocido';
+        log(
+          `Nube cargada.\nPuntos: ${n}\nColoreado por: ${elegido}\n` +
+          `Atributos: ${atributos.join(', ') || 'no detectados'}\n` +
+          `(cambialo en el panel lateral > Appearance)`
+        );
+        setTimeout(() => diag.classList.add('hidden'), 12000);
+      });
+    }
   }
 </script>
 </body>

@@ -10,7 +10,7 @@ navegador.
 navegador --(sube LAS)--> nginx --(proxy)--> api --(encola)--> redis
                                                 |
                                                 v
-                                           postgres (metadata del job)
+                                           Supabase Postgres (metadata del job)
 
 worker <--(toma trabajo)-- redis
 worker --(descarga LAS)--> minio (bucket raw-las)
@@ -22,7 +22,8 @@ navegador --(visor Potree)--> nginx --(proxy)--> minio (bucket pointclouds)
 
 Servicios en `docker-compose.yml`:
 
-- **postgres**: metadata de cada trabajo (estado, nombre de archivo, error).
+- **Supabase Postgres** (externo, no corre en Docker): metadata de cada
+  trabajo (estado, nombre de archivo, error). Se conecta via `DATABASE_URL`.
 - **redis**: cola de trabajos (BullMQ).
 - **minio**: almacenamiento tipo S3, self-hosted. Bucket `raw-las` (archivos
   originales) y `pointclouds` (resultado convertido, lectura publica).
@@ -37,7 +38,9 @@ Servicios en `docker-compose.yml`:
 
 ```bash
 cp .env.example .env
-# edita .env y cambia las claves por defecto
+# edita .env: cambia las claves de MinIO por defecto y pega tu DATABASE_URL
+# de Supabase (Project Settings > Database > Connection string). El password
+# debe ir URL-encoded si tiene caracteres especiales (# -> %23, + -> %2B, etc.)
 
 # 1. clona en tu maquina el codigo de Potree y PotreeConverter
 #    (los Dockerfiles los copian desde aqui, no los clonan dentro del build)
