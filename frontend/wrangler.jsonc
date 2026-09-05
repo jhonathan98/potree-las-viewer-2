@@ -1,0 +1,12 @@
+{
+  // El nombre debe coincidir con el Worker ya creado en Cloudflare (define
+  // el subdominio potree-viewer.aeromapscolombia.workers.dev). Si lo cambias
+  // aqui, "wrangler deploy" crearia/apuntaria a un Worker distinto.
+  "name": "potree-viewer",
+  "compatibility_date": "2026-09-05",
+  // Sin "main": este Worker no corre codigo, solo sirve los archivos
+  // estaticos generados por build-pages.sh en frontend/dist/.
+  "assets": {
+    "directory": "./dist"
+  }
+}
