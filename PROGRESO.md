@@ -45,6 +45,36 @@ la gobiernan estan en `README-arquitectura-hibrida-gratuita.md`.
   `https://potree-viewer.aeromapscolombia.workers.dev` por
   `potreevista.aeromapscolombia.com` (agregar como Custom Domain en el
   proyecto de Cloudflare y actualizar `FRONTEND_URL` en el `.env` de la NAS).
+- **Bucket `pointclouds` publico (riesgo conocido, sin resolver)**:
+  `docker-compose.yml` (`minio-init`) sigue con `mc anonymous set download
+  local/pointclouds` — cualquiera con la URL de una nube de puntos puede
+  descargarla sin loguearse. Hoy la unica proteccion es que el ID del job es
+  un UUID no adivinable (seguridad por oscuridad, no control de acceso real).
+  El README (seccion 15) ya dejaba esta decision abierta entre "bucket
+  publico via proxy" vs "URL temporal via API" — sigue sin resolverse a
+  favor de la segunda opcion.
+- **Limite de subida de Cloudflare (bloqueador para usuarios externos)**: la
+  subida sigue siendo un unico `PUT` prefirmado directo a MinIO (sin
+  multipart). El plan gratuito de Cloudflare limita a ~100MB por request en
+  el trafico que pasa por el Tunnel/proxy, asi que archivos reales de
+  decenas de GB solo se pueden subir hoy desde la LAN (sin pasar por
+  Cloudflare). Es la Fase 6 del README ("Upload grande") que sigue
+  pendiente — sin ella la app no cumple su proposito para usuarios externos.
+
+### Verificado (2026-09-19): la validacion de auth en la API si esta activa
+
+Antes de asumir que faltaba, se probo en vivo contra la NAS real
+(`https://nas.aeromapscolombia.com`):
+
+- `curl` a `/api/jobs` sin token -> `401` (no devuelve datos).
+- `curl` a `/api/jobs` con un token invalido -> `401 {"error":"Token invalido o expirado"}`.
+
+Esto confirma que `requireAuth` (`backend/src/auth.js`, verificacion JWKS de
+Supabase) esta aplicado en `/api/jobs` y `/api/uploads`
+(`router.use(requireAuth)` en ambos routers), y que la tabla `jobs` ya tiene
+`user_id` (FK a `auth.users`) con `getJob`/`listJobs` filtrando siempre por
+el usuario dueno — ver `backend/src/db.js`. Estos dos puntos **ya estaban
+resueltos**, no son pendientes.
 
 ## Historial de tareas (segun git log en `main`)
 
